@@ -1,17 +1,18 @@
 # spam-tokens
 
-Unicode-aware tokenizer for spam classification, shared across the jadoint
-spam stack (`asianfanfics-spam`, `spam-robinson`, `spam-classifier`).
+A Unicode-aware tokenizer for spam classification. Produces a bag-of-words
+suitable for Bayesian classifiers (Gary Robinson, Naive Bayes), TF-IDF
+vectorizers, and similar bag-of-words models.
 
-This module replaces three diverged preprocessing pipelines (`CleanTextAggressive`
-and `cleanText` in asianfanfics-spam, `clean_text` in spam-classifier) with a
-single source of truth used at both training time and inference time, in Go
-and Python.
+The tokenizer is designed to be portable: a shared JSON fixture file
+(`testdata/fixtures.json`) defines the expected `input -> {token: count}`
+mapping for every supported case, so ports to other languages can be
+validated for byte-for-byte parity against the Go implementation.
 
-## Install (Go)
+## Install
 
 ```go
-import "github.com/jadoint/spam-tokens"
+import spamtokens "github.com/jadoint/spam-tokens"
 ```
 
 ```go
@@ -26,18 +27,9 @@ stream := spamtokens.CleanText("Hello WORLD", spamtokens.DefaultOptions())
 // "hello world"
 ```
 
-## Install (Python)
-
-Ships inside `spam-classifier` as `spam_detector_ai.spam_tokenizer`:
-
-```python
-from spam_detector_ai.spam_tokenizer import tokenize, clean_text, default_options
-
-tokens = tokenize("안녕 친구 http://shady.biz/buy/viagra")
-# {"script_hangul": 1,
-#  "shady.biz": 1, "shady": 1, "biz": 1,
-#  "buy": 1, "viagra": 1}
-```
+`Tokenize` returns a `map[string]int` bag-of-words. `CleanText` returns the
+same tokens joined by spaces — useful when feeding training rows to a
+downstream classifier that expects a single text field per document.
 
 ## Pipeline
 
@@ -48,7 +40,8 @@ Applied in order:
    script present (`script_han`, `script_hiragana`, `script_katakana`,
    `script_hangul`). This captures the script-as-signal pattern (e.g.
    pure-hangul + spammy URL → spam) without paying the cost of per-character
-   CJK tokenization.
+   CJK tokenization, which would otherwise explode vocabulary size and
+   slow down classification.
 3. **Extract HTML tags** — emit `tag_<name>` tokens (e.g. `tag_a`, `tag_img`,
    `tag_iframe`, `tag_script`). On every tag, scan `href`, `src`, `action`,
    `formaction`, and `data-url` attributes; feed each value through URL
@@ -71,10 +64,6 @@ Applied in order:
 8. **Whitespace-split + filter** — drop pure-numeric tokens, drop tokens
    outside `[MinTokenRunes, MaxTokenRunes]` (defaults 3 and 40).
 
-The full rule set is exercised by `testdata/fixtures.json`, which is
-consumed by both the Go and Python test suites to guarantee cross-language
-parity.
-
 ## Options
 
 | Field              | Default | Notes                                                   |
@@ -85,21 +74,28 @@ parity.
 | `KeepURLs`         | `true`  | Emit URL-derived tokens (URLs are always stripped)      |
 | `KeepScriptFlags`  | `true`  | Emit `script_<name>` per non-Latin script present       |
 
-## Testing
+## Cross-language parity
 
-```bash
-# Go
-go test ./...
+`testdata/fixtures.json` is the canonical specification. Each fixture has
+the form:
 
-# Python (from spam-classifier/)
-./venv/bin/python -m pytest spam_detector_ai/tests/test_spam_tokenizer.py
+```json
+{
+  "name": "human-readable description",
+  "input": "raw input string",
+  "expected": { "token1": 1, "token2": 3 }
+}
 ```
 
-The Python tests load `testdata/fixtures.json` from this repo via a relative
-path resolution (`../spam-tokens/testdata/fixtures.json`). Override with the
-`SPAM_TOKENS_FIXTURES` environment variable when running outside the
-monorepo layout.
+A port in another language is correct if it produces the `expected` map for
+every fixture. Pull requests adding fixtures are welcome.
+
+## Testing
+
+```sh
+go test ./...
+```
 
 ## License
 
-Internal jadoint tooling. No license declared.
+MIT
