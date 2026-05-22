@@ -1,0 +1,16 @@
+# Go build / test artifacts
+*.test
+*.out
+coverage.*
+vendor/
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Direnv / local env
+.envrc
+.env

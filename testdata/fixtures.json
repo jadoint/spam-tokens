@@ -1,0 +1,390 @@
+[
+  {
+    "name": "empty input",
+    "input": "",
+    "expected": {}
+  },
+  {
+    "name": "whitespace only",
+    "input": "   \n\t  ",
+    "expected": {}
+  },
+  {
+    "name": "simple words",
+    "input": "Hello world this looks like a test",
+    "expected": {
+      "hello": 1,
+      "world": 1,
+      "this": 1,
+      "looks": 1,
+      "like": 1,
+      "test": 1
+    }
+  },
+  {
+    "name": "lowercasing",
+    "input": "Hello HELLO HeLLo",
+    "expected": {
+      "hello": 3
+    }
+  },
+  {
+    "name": "min length filter drops short words",
+    "input": "a an is be the cat dog",
+    "expected": {
+      "the": 1,
+      "cat": 1,
+      "dog": 1
+    }
+  },
+  {
+    "name": "pure numbers dropped",
+    "input": "buy 1000 pills for 99 dollars",
+    "expected": {
+      "buy": 1,
+      "pills": 1,
+      "for": 1,
+      "dollars": 1
+    }
+  },
+  {
+    "name": "alphanumeric token kept",
+    "input": "code abc123 def",
+    "expected": {
+      "code": 1,
+      "abc123": 1,
+      "def": 1
+    }
+  },
+  {
+    "name": "punctuation stripped",
+    "input": "Hello, world!!! How are you?",
+    "expected": {
+      "hello": 1,
+      "world": 1,
+      "how": 1,
+      "are": 1,
+      "you": 1
+    }
+  },
+  {
+    "name": "currency and math symbols dropped",
+    "input": "Pay $100 € £ ¥ for math 1+2=3 here",
+    "expected": {
+      "pay": 1,
+      "for": 1,
+      "math": 1,
+      "here": 1
+    }
+  },
+  {
+    "name": "html entities unescaped then tokenized",
+    "input": "Tom &amp; Jerry &lt;3 each other",
+    "expected": {
+      "tom": 1,
+      "jerry": 1,
+      "each": 1,
+      "other": 1
+    }
+  },
+  {
+    "name": "repeated chars collapsed",
+    "input": "Hellooooo woooorld",
+    "expected": {
+      "helloo": 1,
+      "woorld": 1
+    }
+  },
+  {
+    "name": "www preserved in text",
+    "input": "search wwwwww engine",
+    "expected": {
+      "search": 1,
+      "www": 1,
+      "engine": 1
+    }
+  },
+  {
+    "name": "html tags emit tag tokens",
+    "input": "<b>bold</b> and <i>italic</i> text here",
+    "expected": {
+      "tag_b": 2,
+      "tag_i": 2,
+      "bold": 1,
+      "and": 1,
+      "italic": 1,
+      "text": 1,
+      "here": 1
+    }
+  },
+  {
+    "name": "html img tag",
+    "input": "Click <img src=\"foo.jpg\" alt=\"x\"> now please",
+    "expected": {
+      "tag_img": 1,
+      "click": 1,
+      "now": 1,
+      "please": 1,
+      "foo.jpg": 1,
+      "foo": 1,
+      "jpg": 1
+    }
+  },
+  {
+    "name": "anchor tag with href emits url tokens",
+    "input": "Check <a href=\"http://example.com/buy/viagra\">here</a> please",
+    "expected": {
+      "tag_a": 2,
+      "example.com": 1,
+      "example": 1,
+      "com": 1,
+      "buy": 1,
+      "viagra": 1,
+      "check": 1,
+      "here": 1,
+      "please": 1
+    }
+  },
+  {
+    "name": "iframe and script tags",
+    "input": "Hi <iframe src='x'></iframe><script>alert(1)</script> there",
+    "expected": {
+      "tag_iframe": 2,
+      "tag_script": 2,
+      "alert": 1,
+      "there": 1
+    }
+  },
+  {
+    "name": "bare url with path",
+    "input": "Visit example.com/cheap-replica/rolex now",
+    "expected": {
+      "example.com": 1,
+      "example": 1,
+      "com": 1,
+      "cheap": 1,
+      "replica": 1,
+      "rolex": 1,
+      "visit": 1,
+      "now": 1
+    }
+  },
+  {
+    "name": "https url stripped of scheme",
+    "input": "Read https://www.example.com/path/to/page for more",
+    "expected": {
+      "example.com": 1,
+      "example": 1,
+      "com": 1,
+      "path": 1,
+      "page": 1,
+      "read": 1,
+      "for": 1,
+      "more": 1
+    }
+  },
+  {
+    "name": "url with query string",
+    "input": "Click http://shady.biz/buy?item=viagra&qty=100 today",
+    "expected": {
+      "shady.biz": 1,
+      "shady": 1,
+      "biz": 1,
+      "buy": 1,
+      "item": 1,
+      "viagra": 1,
+      "qty": 1,
+      "click": 1,
+      "today": 1
+    }
+  },
+  {
+    "name": "multiple urls",
+    "input": "See foo.com and bar.net for deals",
+    "expected": {
+      "foo.com": 1,
+      "foo": 1,
+      "com": 1,
+      "bar.net": 1,
+      "bar": 1,
+      "net": 1,
+      "see": 1,
+      "and": 1,
+      "for": 1,
+      "deals": 1
+    }
+  },
+  {
+    "name": "cjk dropped from words, script_han emitted",
+    "input": "我喜欢这个故事",
+    "expected": {
+      "script_han": 1
+    }
+  },
+  {
+    "name": "cjk mixed with ascii keeps latin, emits script_han",
+    "input": "Story about 修罗场 high school romance",
+    "expected": {
+      "script_han": 1,
+      "story": 1,
+      "about": 1,
+      "high": 1,
+      "school": 1,
+      "romance": 1
+    }
+  },
+  {
+    "name": "japanese emits hiragana and katakana flags",
+    "input": "こんにちは カタカナ",
+    "expected": {
+      "script_hiragana": 1,
+      "script_katakana": 1
+    }
+  },
+  {
+    "name": "korean emits hangul flag",
+    "input": "안녕하세요 친구",
+    "expected": {
+      "script_hangul": 1
+    }
+  },
+  {
+    "name": "cyrillic letters preserved and lowercased",
+    "input": "Привет МИР",
+    "expected": {
+      "привет": 1,
+      "мир": 1
+    }
+  },
+  {
+    "name": "emoji dropped",
+    "input": "Great story 🔥🔥🔥 loved it",
+    "expected": {
+      "great": 1,
+      "story": 1,
+      "loved": 1
+    }
+  },
+  {
+    "name": "single quotes apostrophes stripped",
+    "input": "It's John's favorite story",
+    "expected": {
+      "favorite": 1,
+      "story": 1,
+      "john": 1
+    }
+  },
+  {
+    "name": "non-breaking space and tabs",
+    "input": "word1 word2\tword3",
+    "expected": {
+      "word1": 1,
+      "word2": 1,
+      "word3": 1
+    }
+  },
+  {
+    "name": "bbcode-like syntax",
+    "input": "[url=http://spam.biz]click here[/url] for prize",
+    "expected": {
+      "spam.biz": 1,
+      "spam": 1,
+      "biz": 1,
+      "url": 2,
+      "click": 1,
+      "here": 1,
+      "for": 1,
+      "prize": 1
+    }
+  },
+  {
+    "name": "long token over max dropped",
+    "input": "supercalifragilisticexpialidociousandevenmoresomethinglong word",
+    "expected": {
+      "word": 1
+    }
+  },
+  {
+    "name": "html with cjk content emits tag + script_han only",
+    "input": "<p>这是一个很好的故事</p>",
+    "expected": {
+      "tag_p": 2,
+      "script_han": 1
+    }
+  },
+  {
+    "name": "duplicate words counted",
+    "input": "spam spam spam wonderful spam",
+    "expected": {
+      "spam": 4,
+      "wonderful": 1
+    }
+  },
+  {
+    "name": "mixed everything",
+    "input": "<a href=\"http://shady.biz/free/viagra\">CLICK HERE!!!</a> 我喜欢 deals 999",
+    "expected": {
+      "tag_a": 2,
+      "script_han": 1,
+      "shady.biz": 1,
+      "shady": 1,
+      "biz": 1,
+      "free": 1,
+      "viagra": 1,
+      "click": 1,
+      "here": 1,
+      "deals": 1
+    }
+  },
+  {
+    "name": "url path segments lowercased",
+    "input": "Visit Example.COM/Buy/CHEAP today",
+    "expected": {
+      "example.com": 1,
+      "example": 1,
+      "com": 1,
+      "buy": 1,
+      "cheap": 1,
+      "visit": 1,
+      "today": 1
+    }
+  },
+  {
+    "name": "korean plus english (ham-shaped)",
+    "input": "안녕 my friends here is my new chapter about romance",
+    "expected": {
+      "script_hangul": 1,
+      "friends": 1,
+      "here": 1,
+      "new": 1,
+      "chapter": 1,
+      "about": 1,
+      "romance": 1
+    }
+  },
+  {
+    "name": "korean plus spam url (spam-shaped)",
+    "input": "안녕하세요 친구 http://shady.biz/cheap/viagra",
+    "expected": {
+      "script_hangul": 1,
+      "shady.biz": 1,
+      "shady": 1,
+      "biz": 1,
+      "cheap": 1,
+      "viagra": 1
+    }
+  },
+  {
+    "name": "domain with port",
+    "input": "Reach api.example.com:8080/health now",
+    "expected": {
+      "api.example.com": 1,
+      "api": 1,
+      "example": 1,
+      "com": 1,
+      "health": 1,
+      "reach": 1,
+      "now": 1
+    }
+  }
+]
