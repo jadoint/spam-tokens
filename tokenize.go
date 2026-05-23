@@ -124,7 +124,7 @@ func tokenStream(text string, opts Options) []string {
 	processed = strings.ToLower(processed)
 	processed = collapseRepeated(processed)
 
-	for word := range strings.FieldsSeq(processed) {
+	for _, word := range strings.Fields(processed) {
 		if !isValidToken(word, opts) {
 			continue
 		}
