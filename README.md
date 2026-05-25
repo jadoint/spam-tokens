@@ -52,7 +52,8 @@ Applied in order:
    - Emit the bare domain (e.g. `shady.biz`) as a token.
    - Split on `[./?#&=_+%:\-]+` and emit each segment as a token (catches
      spammy path/query components like `buy`, `viagra`, `cheap`).
-   - Drop pure-digit segments (ports, timestamps) and segments < 3 chars.
+   - Drop pure-digit segments (ports, timestamps) and segments outside
+     `[MinTokenRunes, MaxTokenRunes]`.
    - Strip the URL from the working text.
 5. **Sanitize** — replace runes that are not letters / digits / whitespace
    with spaces. Latin / Cyrillic / Arabic / other word-bearing scripts are

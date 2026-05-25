@@ -114,7 +114,7 @@ func tokenStream(text string, opts Options) []string {
 	processed = extractHTMLTags(processed, &out, opts)
 
 	if opts.KeepURLs {
-		processed = extractURLs(processed, &out)
+		processed = extractURLs(processed, &out, opts)
 	} else {
 		processed = reURLScheme.ReplaceAllString(processed, " ")
 		processed = reBareDomain.ReplaceAllString(processed, " ")
@@ -160,7 +160,7 @@ func extractHTMLTags(text string, out *[]string, opts Options) string {
 			attrs := text[m[4]:m[5]]
 			for _, am := range reURLAttr.FindAllStringSubmatch(attrs, -1) {
 				if len(am) > 1 {
-					tokenizeURL(am[1], out)
+					tokenizeURL(am[1], out, opts)
 				}
 			}
 		}
@@ -175,13 +175,13 @@ func extractHTMLTags(text string, out *[]string, opts Options) string {
 
 // extractURLs emits URL-derived tokens (domain + path/query segments) and
 // returns text with the matched URLs replaced by spaces.
-func extractURLs(text string, out *[]string) string {
+func extractURLs(text string, out *[]string, opts Options) string {
 	text = reURLScheme.ReplaceAllStringFunc(text, func(u string) string {
-		tokenizeURL(u, out)
+		tokenizeURL(u, out, opts)
 		return " "
 	})
 	text = reBareDomain.ReplaceAllStringFunc(text, func(u string) string {
-		tokenizeURL(u, out)
+		tokenizeURL(u, out, opts)
 		return " "
 	})
 	return text
@@ -189,9 +189,9 @@ func extractURLs(text string, out *[]string) string {
 
 // tokenizeURL strips scheme + leading www., emits the bare domain as one
 // token, and emits each [./?#&=_+%:-]-split segment as a separate token.
-// Pure-numeric and length-1 segments are dropped here so URL noise (ports,
-// query timestamps) doesn't pollute the vocabulary.
-func tokenizeURL(url string, out *[]string) {
+// Pure-numeric and out-of-range segments are dropped here so URL noise
+// (ports, query timestamps, long encoded blobs) doesn't pollute the vocabulary.
+func tokenizeURL(url string, out *[]string, opts Options) {
 	url = strings.ToLower(url)
 	url = strings.TrimSpace(url)
 	if idx := strings.Index(url, "://"); idx >= 0 {
@@ -210,15 +210,12 @@ func tokenizeURL(url string, out *[]string) {
 	if d, _, ok := strings.Cut(domain, ":"); ok {
 		domain = d
 	}
-	if domain != "" && utf8.RuneCountInString(domain) >= 2 {
+	if isValidToken(domain, opts) {
 		*out = append(*out, domain)
 	}
 
 	for _, part := range reURLSplit.Split(url, -1) {
-		if part == "" || reAllDigits.MatchString(part) {
-			continue
-		}
-		if utf8.RuneCountInString(part) < 3 {
+		if !isValidToken(part, opts) {
 			continue
 		}
 		*out = append(*out, part)

@@ -137,3 +137,21 @@ func TestKeepURLsFalse(t *testing.T) {
 		t.Errorf("non-URL words should still tokenize: %v", got)
 	}
 }
+
+func TestURLTokensRespectMaxTokenRunes(t *testing.T) {
+	opts := DefaultOptions()
+	longSegment := strings.Repeat("a", opts.MaxTokenRunes+1)
+	got := Tokenize("visit https://example.com/"+longSegment+"?ok=short", opts)
+
+	if _, ok := got[longSegment]; ok {
+		t.Fatalf("URL segment over MaxTokenRunes should not be emitted: %v", got)
+	}
+	if got["example.com"] != 1 || got["example"] != 1 || got["com"] != 1 || got["short"] != 1 {
+		t.Fatalf("valid URL tokens should still be emitted: %v", got)
+	}
+	for tok := range got {
+		if len(tok) > 255 {
+			t.Fatalf("token %q has %d bytes, exceeds spam_tokens.token storage limit", tok, len(tok))
+		}
+	}
+}
