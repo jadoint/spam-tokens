@@ -215,16 +215,37 @@
     }
   },
   {
-    "name": "cjk dropped from words, script_han emitted",
+    "name": "cjk sentence emits han bigrams and script_han",
+    "since": "0.2.0",
     "input": "我喜欢这个故事",
     "expected": {
+      "script_han": 1,
+      "我喜": 1,
+      "喜欢": 1,
+      "欢这": 1,
+      "这个": 1,
+      "个故": 1,
+      "故事": 1
+    },
+    "expected_legacy": {
       "script_han": 1
     }
   },
   {
-    "name": "cjk mixed with ascii keeps latin, emits script_han",
+    "name": "cjk mixed with ascii keeps latin, emits han bigrams",
+    "since": "0.2.0",
     "input": "Story about 修罗场 high school romance",
     "expected": {
+      "script_han": 1,
+      "story": 1,
+      "about": 1,
+      "high": 1,
+      "school": 1,
+      "romance": 1,
+      "修罗": 1,
+      "罗场": 1
+    },
+    "expected_legacy": {
       "script_han": 1,
       "story": 1,
       "about": 1,
@@ -234,17 +255,39 @@
     }
   },
   {
-    "name": "japanese emits hiragana and katakana flags",
+    "name": "japanese emits kana bigrams and hiragana and katakana flags",
+    "since": "0.2.0",
     "input": "こんにちは カタカナ",
     "expected": {
+      "script_hiragana": 1,
+      "script_katakana": 1,
+      "こん": 1,
+      "んに": 1,
+      "にち": 1,
+      "ちは": 1,
+      "カタ": 1,
+      "タカ": 1,
+      "カナ": 1
+    },
+    "expected_legacy": {
       "script_hiragana": 1,
       "script_katakana": 1
     }
   },
   {
-    "name": "korean emits hangul flag",
+    "name": "korean emits hangul words, bigrams and flag",
+    "since": "0.2.0",
     "input": "안녕하세요 친구",
     "expected": {
+      "script_hangul": 1,
+      "안녕하세요": 1,
+      "안녕": 1,
+      "녕하": 1,
+      "하세": 1,
+      "세요": 1,
+      "친구": 2
+    },
+    "expected_legacy": {
       "script_hangul": 1
     }
   },
@@ -305,9 +348,22 @@
     }
   },
   {
-    "name": "html with cjk content emits tag + script_han only",
+    "name": "html with cjk content emits tag, script_han and han bigrams",
+    "since": "0.2.0",
     "input": "<p>这是一个很好的故事</p>",
     "expected": {
+      "tag_p": 2,
+      "script_han": 1,
+      "这是": 1,
+      "是一": 1,
+      "一个": 1,
+      "个很": 1,
+      "很好": 1,
+      "好的": 1,
+      "的故": 1,
+      "故事": 1
+    },
+    "expected_legacy": {
       "tag_p": 2,
       "script_han": 1
     }
@@ -322,6 +378,7 @@
   },
   {
     "name": "mixed everything",
+    "since": "0.2.0",
     "input": "<a href=\"http://shady.biz/free/viagra\">CLICK HERE!!!</a> 我喜欢 deals 999",
     "expected": {
       "tag_a": 2,
@@ -333,8 +390,37 @@
       "viagra": 1,
       "click": 1,
       "here": 1,
+      "deals": 1,
+      "我喜": 1,
+      "喜欢": 1
+    },
+    "expected_legacy": {
+      "tag_a": 2,
+      "script_han": 1,
+      "shady.biz": 1,
+      "shady": 1,
+      "biz": 1,
+      "free": 1,
+      "viagra": 1,
+      "click": 1,
+      "here": 1,
       "deals": 1
-    }
+    },
+    "expected_stream": [
+      "script_han",
+      "tag_a",
+      "shady.biz",
+      "shady",
+      "biz",
+      "free",
+      "viagra",
+      "tag_a",
+      "我喜",
+      "喜欢",
+      "click",
+      "here",
+      "deals"
+    ]
   },
   {
     "name": "url path segments lowercased",
@@ -351,8 +437,19 @@
   },
   {
     "name": "korean plus english (ham-shaped)",
+    "since": "0.2.0",
     "input": "안녕 my friends here is my new chapter about romance",
     "expected": {
+      "script_hangul": 1,
+      "friends": 1,
+      "here": 1,
+      "new": 1,
+      "chapter": 1,
+      "about": 1,
+      "romance": 1,
+      "안녕": 2
+    },
+    "expected_legacy": {
       "script_hangul": 1,
       "friends": 1,
       "here": 1,
@@ -364,8 +461,23 @@
   },
   {
     "name": "korean plus spam url (spam-shaped)",
+    "since": "0.2.0",
     "input": "안녕하세요 친구 http://shady.biz/cheap/viagra",
     "expected": {
+      "script_hangul": 1,
+      "shady.biz": 1,
+      "shady": 1,
+      "biz": 1,
+      "cheap": 1,
+      "viagra": 1,
+      "안녕하세요": 1,
+      "안녕": 1,
+      "녕하": 1,
+      "하세": 1,
+      "세요": 1,
+      "친구": 2
+    },
+    "expected_legacy": {
       "script_hangul": 1,
       "shady.biz": 1,
       "shady": 1,
@@ -385,6 +497,303 @@
       "health": 1,
       "reach": 1,
       "now": 1
+    }
+  },
+  {
+    "name": "han sentence with fullwidth punctuation emits bigrams per run",
+    "since": "0.2.0",
+    "input": "今天天气很好，我们去公园吧。",
+    "expected": {
+      "script_han": 1,
+      "今天": 1,
+      "天天": 1,
+      "天气": 1,
+      "气很": 1,
+      "很好": 1,
+      "我们": 1,
+      "们去": 1,
+      "去公": 1,
+      "公园": 1,
+      "园吧": 1
+    },
+    "expected_legacy": {
+      "script_han": 1
+    },
+    "expected_stream": [
+      "script_han",
+      "今天",
+      "天天",
+      "天气",
+      "气很",
+      "很好",
+      "我们",
+      "们去",
+      "去公",
+      "公园",
+      "园吧"
+    ]
+  },
+  {
+    "name": "han with latin inside",
+    "since": "0.2.0",
+    "input": "我喜欢Python编程",
+    "expected": {
+      "script_han": 1,
+      "我喜": 1,
+      "喜欢": 1,
+      "编程": 1,
+      "python": 1
+    },
+    "expected_legacy": {
+      "script_han": 1,
+      "python": 1
+    },
+    "expected_stream": [
+      "script_han",
+      "我喜",
+      "喜欢",
+      "编程",
+      "python"
+    ]
+  },
+  {
+    "name": "hiragana and katakana sentence is one kana run",
+    "since": "0.2.0",
+    "input": "これはテストです",
+    "expected": {
+      "script_hiragana": 1,
+      "script_katakana": 1,
+      "これ": 1,
+      "れは": 1,
+      "はテ": 1,
+      "テス": 1,
+      "スト": 1,
+      "トで": 1,
+      "です": 1
+    },
+    "expected_legacy": {
+      "script_hiragana": 1,
+      "script_katakana": 1
+    }
+  },
+  {
+    "name": "kana run with prolonged sound mark U+30FC",
+    "since": "0.2.0",
+    "input": "コーヒー ラーメン",
+    "expected": {
+      "script_katakana": 1,
+      "コー": 1,
+      "ーヒ": 1,
+      "ヒー": 1,
+      "ラー": 1,
+      "ーメ": 1,
+      "メン": 1
+    },
+    "expected_legacy": {
+      "script_katakana": 1
+    }
+  },
+  {
+    "name": "korean sentence of three words",
+    "since": "0.2.0",
+    "input": "안녕하세요 저는 학생입니다",
+    "expected": {
+      "script_hangul": 1,
+      "안녕하세요": 1,
+      "안녕": 1,
+      "녕하": 1,
+      "하세": 1,
+      "세요": 1,
+      "저는": 2,
+      "학생입니다": 1,
+      "학생": 1,
+      "생입": 1,
+      "입니": 1,
+      "니다": 1
+    },
+    "expected_legacy": {
+      "script_hangul": 1
+    },
+    "expected_stream": [
+      "script_hangul",
+      "안녕하세요",
+      "안녕",
+      "녕하",
+      "하세",
+      "세요",
+      "저는",
+      "저는",
+      "학생입니다",
+      "학생",
+      "생입",
+      "입니",
+      "니다"
+    ]
+  },
+  {
+    "name": "thai sentence of 15 runes",
+    "since": "0.2.0",
+    "input": "สวัสดีครับทุกคน",
+    "expected": {
+      "script_thai": 1,
+      "สว": 1,
+      "วั": 1,
+      "ัส": 1,
+      "สด": 1,
+      "ดี": 1,
+      "ีค": 1,
+      "คร": 1,
+      "รั": 1,
+      "ับ": 1,
+      "บท": 1,
+      "ทุ": 1,
+      "ุก": 1,
+      "กค": 1,
+      "คน": 1
+    },
+    "expected_legacy": {
+      "script_thai": 1,
+      "กคน": 1
+    },
+    "expected_stream": [
+      "script_thai",
+      "สว",
+      "วั",
+      "ัส",
+      "สด",
+      "ดี",
+      "ีค",
+      "คร",
+      "รั",
+      "ับ",
+      "บท",
+      "ทุ",
+      "ุก",
+      "กค",
+      "คน"
+    ]
+  },
+  {
+    "name": "one-rune han run emits the flag only",
+    "input": "我 love you",
+    "expected": {
+      "script_han": 1,
+      "love": 1,
+      "you": 1
+    }
+  },
+  {
+    "name": "mixed han, kana and hangul",
+    "since": "0.2.0",
+    "input": "日本語のテスト 한국어 中文",
+    "expected": {
+      "script_han": 1,
+      "script_hiragana": 1,
+      "script_katakana": 1,
+      "script_hangul": 1,
+      "日本": 1,
+      "本語": 1,
+      "のテ": 1,
+      "テス": 1,
+      "スト": 1,
+      "한국어": 1,
+      "한국": 1,
+      "국어": 1,
+      "中文": 1
+    },
+    "expected_legacy": {
+      "script_han": 1,
+      "script_hiragana": 1,
+      "script_katakana": 1,
+      "script_hangul": 1
+    },
+    "expected_stream": [
+      "script_han",
+      "script_hiragana",
+      "script_katakana",
+      "script_hangul",
+      "日本",
+      "本語",
+      "のテ",
+      "テス",
+      "スト",
+      "한국어",
+      "한국",
+      "국어",
+      "中文"
+    ]
+  },
+  {
+    "name": "nfkc folds fullwidth latin letters to ascii tokens",
+    "since": "0.2.0",
+    "input": "ＦＲＥＥ ＭＯＮＥＹ １００ now",
+    "expected": {
+      "free": 1,
+      "money": 1,
+      "now": 1
+    }
+  },
+  {
+    "name": "nfkc folds a fullwidth url",
+    "since": "0.2.0",
+    "input": "ｖｉｓｉｔ ｈｔｔｐｓ：／／ｓｈａｄｙ．ｂｉｚ／ｂｕｙ",
+    "expected": {
+      "shady.biz": 1,
+      "shady": 1,
+      "biz": 1,
+      "buy": 1,
+      "visit": 1
+    },
+    "expected_stream": [
+      "shady.biz",
+      "shady",
+      "biz",
+      "buy",
+      "visit"
+    ]
+  },
+  {
+    "name": "cjk inside an html tag attribute raises the flag but no bigrams",
+    "input": "<span title=\"你好世界\">hello world</span>",
+    "expected": {
+      "script_han": 1,
+      "tag_span": 2,
+      "hello": 1,
+      "world": 1
+    }
+  },
+  {
+    "name": "emoji-only input is empty",
+    "input": "🔥😀🎉",
+    "expected": {}
+  },
+  {
+    "name": "thai word with combining marks",
+    "since": "0.2.0",
+    "input": "เพื่อนๆ",
+    "expected": {
+      "script_thai": 1,
+      "เพ": 1,
+      "พื": 1,
+      "ื่": 1,
+      "่อ": 1,
+      "อน": 1,
+      "นๆ": 1
+    },
+    "expected_legacy": {
+      "script_thai": 1,
+      "อนๆ": 1
+    }
+  },
+  {
+    "name": "url path segment past max runes dropped",
+    "input": "buy at https://example.com/abcdefghijklmnopqrstuvwxyzabcdefghijklmnopq/cheap",
+    "expected": {
+      "buy": 1,
+      "example.com": 1,
+      "example": 1,
+      "com": 1,
+      "cheap": 1
     }
   }
 ]
