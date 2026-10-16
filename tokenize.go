@@ -1,31 +1,40 @@
 // Package spamtokens is a Unicode-aware tokenizer for spam classification
-// shared across the jadoint spam stack (asianfanfics-spam, spam-robinson,
-// spam-classifier).
+// shared across the jadoint spam stack (gorobinson and spam-robinson, the
+// spam-service exporter, and the Python port in spam-classifier).
 //
 // The tokenizer applies the following pipeline, in order:
 //
 //  1. HTML-unescape the input (e.g. &amp; -> &).
-//  2. Detect non-Latin scripts (Han, Hiragana, Katakana, Hangul) and emit a
-//     single "script_<name>" token per script present in the document. This
-//     captures script-as-signal without paying the cost of per-character
-//     tokenization for CJK content.
-//  3. Extract HTML tags: emit "tag_<name>" tokens and, for tags with
+//  2. NFKC-normalise it, the normalisation half of Fold: full-width letters,
+//     digits and punctuation become their ASCII twins, half-width Katakana
+//     becomes full-width. Case is left alone until step 7.
+//  3. Detect scripts written without spaces (Han, Hiragana, Katakana, Hangul,
+//     Thai) and emit a single "script_<name>" token per script present, in
+//     that order.
+//  4. Extract HTML tags: emit "tag_<name>" tokens and, for tags with
 //     href/src/action/formaction/data-url attributes, feed those values
 //     through URL tokenization. Tags are then stripped from the working text.
-//  4. Extract URLs (both http(s)://... and bare host.tld[/path] forms): emit
+//  5. Extract URLs (both http(s)://... and bare host.tld[/path] forms): emit
 //     the bare domain as a single token and emit each path / query / fragment
 //     segment as its own token after splitting on URL delimiters. URLs are
 //     then stripped from the working text.
-//  5. Replace every remaining rune that is not a letter, digit, or whitespace
-//     with a space (Unicode-aware via unicode.IsLetter / unicode.IsDigit /
-//     unicode.IsSpace). CJK characters are dropped here (treated as
-//     punctuation) since they carry no word-level boundaries and would
-//     otherwise explode the vocabulary at storage time.
-//  6. Lowercase the working text.
-//  7. Collapse runs of identical runes to at most two, except "www" which is
+//  6. Sanitize and segment. A run is a maximal sequence of runes of one script
+//     class: Han; Kana (Hiragana, Katakana and U+30FC); Hangul; Thai. With
+//     ScriptBigrams, each run of n runes emits its n-1 overlapping character
+//     bigrams, and a Hangul run of 2..MaxTokenRunes runes also emits itself
+//     as a word, first. The run is then blanked out. Without ScriptBigrams,
+//     Han, Kana and Hangul runes are blanked and Thai is sanitized like any
+//     other script, as in v0.1.2. Every remaining rune that is not a letter,
+//     digit or whitespace becomes a space.
+//  7. Lowercase the working text.
+//  8. Collapse runs of identical runes to at most two, except "www" which is
 //     preserved.
-//  8. Split on whitespace, drop pure-numeric tokens, drop tokens outside
+//  9. Split on whitespace, drop pure-numeric tokens, drop tokens outside
 //     [MinTokenRunes, MaxTokenRunes].
+//
+// Script tokens therefore follow the flag, tag and URL tokens in the stream
+// and precede every word. Min and Max runes bound the words and URL tokens;
+// bigrams are always two runes.
 package spamtokens
 
 import (
@@ -34,6 +43,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 // Options controls tokenizer behavior. Use DefaultOptions for the canonical
@@ -49,11 +60,15 @@ type Options struct {
 	// KeepURLs emits domain and path-segment tokens for URLs. URLs are
 	// always stripped from the working text regardless of this flag.
 	KeepURLs bool
-	// KeepScriptFlags emits a single "script_<name>" token per non-Latin
+	// KeepScriptFlags emits a single "script_<name>" token per unspaced
 	// script present in the document (script_han, script_hiragana,
-	// script_katakana, script_hangul). CJK characters are always dropped
-	// from word-level tokenization regardless of this flag.
+	// script_katakana, script_hangul, script_thai).
 	KeepScriptFlags bool
+	// ScriptBigrams cuts Han, Kana, Hangul and Thai runs into character
+	// bigrams (and Hangul words). False reproduces v0.1.2, which dropped every
+	// Han, Kana and Hangul rune and split Thai at its vowel and tone marks; it
+	// exists for an A/B against models trained on v0.1.2 tokens.
+	ScriptBigrams bool
 }
 
 // DefaultOptions returns the canonical configuration used across the spam stack.
@@ -64,6 +79,7 @@ func DefaultOptions() Options {
 		KeepHTMLTags:    true,
 		KeepURLs:        true,
 		KeepScriptFlags: true,
+		ScriptBigrams:   true,
 	}
 }
 
@@ -96,9 +112,10 @@ func CleanText(text string, opts Options) string {
 	return strings.Join(tokenStream(text, opts), " ")
 }
 
-// tokenStream walks text once and emits tokens in the order they are
-// encountered (HTML tag tokens first as tags are found, then URL tokens, then
-// the remaining prose). The order is deterministic for a given input.
+// tokenStream runs the package pipeline and emits tokens in pipeline order:
+// script flags, then HTML tag tokens as tags are found, then URL tokens, then
+// script-run tokens, then the remaining prose. The order is deterministic for
+// a given input.
 func tokenStream(text string, opts Options) []string {
 	if text == "" {
 		return nil
@@ -106,6 +123,7 @@ func tokenStream(text string, opts Options) []string {
 
 	out := make([]string, 0, 32)
 	processed := html.UnescapeString(text)
+	processed = norm.NFKC.String(processed)
 
 	if opts.KeepScriptFlags {
 		emitScriptFlags(processed, &out)
@@ -120,7 +138,7 @@ func tokenStream(text string, opts Options) []string {
 		processed = reBareDomain.ReplaceAllString(processed, " ")
 	}
 
-	processed = sanitize(processed)
+	processed = sanitize(processed, &out, opts)
 	processed = strings.ToLower(processed)
 	processed = collapseRepeated(processed)
 
@@ -222,59 +240,43 @@ func tokenizeURL(url string, out *[]string, opts Options) {
 	}
 }
 
-// emitScriptFlags appends a "script_<name>" token for each non-Latin script
-// detected in text. At most one token per script is emitted per call, even if
-// the script appears many times. CJK detection uses isCJK helpers below.
-func emitScriptFlags(text string, out *[]string) {
-	var hasHan, hasHiragana, hasKatakana, hasHangul bool
-	for _, r := range text {
-		switch {
-		case unicode.Is(unicode.Han, r):
-			hasHan = true
-		case unicode.Is(unicode.Hiragana, r):
-			hasHiragana = true
-		case unicode.Is(unicode.Katakana, r):
-			hasKatakana = true
-		case unicode.Is(unicode.Hangul, r):
-			hasHangul = true
-		}
-		if hasHan && hasHiragana && hasKatakana && hasHangul {
-			break
-		}
-	}
-	if hasHan {
-		*out = append(*out, "script_han")
-	}
-	if hasHiragana {
-		*out = append(*out, "script_hiragana")
-	}
-	if hasKatakana {
-		*out = append(*out, "script_katakana")
-	}
-	if hasHangul {
-		*out = append(*out, "script_hangul")
-	}
-}
-
-// sanitize replaces every rune that is not a letter, digit, or whitespace
-// with a space. Latin/Cyrillic/Arabic/other word-bearing scripts are
-// preserved; CJK runes are dropped because per-character CJK tokenization
-// explodes vocabulary and slows training/classification — the script-presence
-// signal is captured by emitScriptFlags instead.
-func sanitize(text string) string {
+// sanitize is pipeline step 6. It emits the tokens of every script run (see
+// emitRun) and blanks the run out, then replaces every other rune that is not
+// a letter, digit, or whitespace with a space, so Latin, Cyrillic, Arabic and
+// the other spaced scripts reach the word split. Without ScriptBigrams the
+// Han, Kana and Hangul runes are blanked unread and Thai is left to the letter
+// test, as in v0.1.2.
+func sanitize(text string, out *[]string, opts Options) string {
 	var sb strings.Builder
 	sb.Grow(len(text))
+	var run []rune
+	runClass := classNone
 	for _, r := range text {
+		c := classOf(r)
+		if c == classThai && !opts.ScriptBigrams {
+			c = classNone
+		}
+		if c != runClass {
+			if len(run) > 0 {
+				emitRun(run, runClass, out, opts)
+				run = run[:0]
+			}
+			runClass = c
+		}
 		switch {
-		case isCJK(r):
+		case c != classNone:
+			if opts.ScriptBigrams {
+				run = append(run, r)
+			}
 			sb.WriteByte(' ')
 		case unicode.IsLetter(r), unicode.IsDigit(r):
 			sb.WriteRune(r)
-		case unicode.IsSpace(r):
-			sb.WriteByte(' ')
 		default:
 			sb.WriteByte(' ')
 		}
+	}
+	if len(run) > 0 {
+		emitRun(run, runClass, out, opts)
 	}
 	return sb.String()
 }
@@ -318,14 +320,4 @@ func isValidToken(s string, opts Options) bool {
 	}
 	n := utf8.RuneCountInString(s)
 	return n >= opts.MinTokenRunes && n <= opts.MaxTokenRunes
-}
-
-// isCJK reports whether r belongs to one of the four major CJK script blocks.
-// CJK runes are dropped during sanitize; their presence is captured by
-// emitScriptFlags as a single "script_<name>" token per script per document.
-func isCJK(r rune) bool {
-	return unicode.Is(unicode.Han, r) ||
-		unicode.Is(unicode.Hiragana, r) ||
-		unicode.Is(unicode.Katakana, r) ||
-		unicode.Is(unicode.Hangul, r)
 }

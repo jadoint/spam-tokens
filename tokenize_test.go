@@ -5,14 +5,40 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
 
+// fixture is one case of testdata/fixtures.json. Expected is the bag under
+// DefaultOptions; ExpectedLegacy, present only where the two differ, is the bag
+// with ScriptBigrams false; ExpectedStream, where present, is CleanText under
+// DefaultOptions split on spaces. Since names the first version whose rules
+// produce Expected, on a case v0.1.2 answered differently.
 type fixture struct {
-	Name     string         `json:"name"`
-	Input    string         `json:"input"`
-	Expected map[string]int `json:"expected"`
+	Name           string         `json:"name"`
+	Since          string         `json:"since"`
+	Input          string         `json:"input"`
+	Expected       map[string]int `json:"expected"`
+	ExpectedLegacy map[string]int `json:"expected_legacy"`
+	ExpectedStream []string       `json:"expected_stream"`
+}
+
+func legacyOptions() Options {
+	opts := DefaultOptions()
+	opts.ScriptBigrams = false
+	return opts
+}
+
+// bag drops zero counts and never returns nil, so maps compare cleanly.
+func bag(m map[string]int) map[string]int {
+	out := make(map[string]int, len(m))
+	for k, v := range m {
+		if v != 0 {
+			out[k] = v
+		}
+	}
+	return out
 }
 
 func loadFixtures(t *testing.T) []fixture {
@@ -30,39 +56,53 @@ func loadFixtures(t *testing.T) []fixture {
 }
 
 func TestTokenizeFixtures(t *testing.T) {
-	opts := DefaultOptions()
 	for _, fx := range loadFixtures(t) {
 		t.Run(fx.Name, func(t *testing.T) {
-			got := Tokenize(fx.Input, opts)
-			// Drop zero-count entries from got to compare cleanly.
-			for k, v := range got {
-				if v == 0 {
-					delete(got, k)
+			if fx.ExpectedLegacy != nil && maps.Equal(bag(fx.ExpectedLegacy), bag(fx.Expected)) {
+				t.Fatalf("expected_legacy equals expected; drop it")
+			}
+			legacy := fx.ExpectedLegacy
+			if legacy == nil {
+				legacy = fx.Expected
+			}
+			for _, setting := range []struct {
+				name string
+				opts Options
+				want map[string]int
+			}{
+				{"default", DefaultOptions(), fx.Expected},
+				{"legacy", legacyOptions(), legacy},
+			} {
+				got := bag(Tokenize(fx.Input, setting.opts))
+				if want := bag(setting.want); !maps.Equal(got, want) {
+					t.Errorf("%s: Tokenize(%q)\n got:  %v\n want: %v", setting.name, fx.Input, got, want)
 				}
 			}
-			want := fx.Expected
-			if want == nil {
-				want = map[string]int{}
-			}
-			if !maps.Equal(got, want) {
-				t.Fatalf("Tokenize(%q)\n got:  %v\n want: %v", fx.Input, got, want)
+			if fx.ExpectedStream != nil {
+				got := strings.Fields(CleanText(fx.Input, DefaultOptions()))
+				if !slices.Equal(got, fx.ExpectedStream) {
+					t.Errorf("CleanText(%q)\n got:  %q\n want: %q", fx.Input, got, fx.ExpectedStream)
+				}
 			}
 		})
 	}
 }
 
-func TestCleanTextDeterministic(t *testing.T) {
-	opts := DefaultOptions()
-	in := "Hello WORLD hello world"
-	a := CleanText(in, opts)
-	b := CleanText(in, opts)
-	if a != b {
-		t.Fatalf("CleanText is not deterministic: %q vs %q", a, b)
-	}
-	// Should contain the lowercased tokens at minimum.
-	for _, want := range []string{"hello", "world"} {
-		if !strings.Contains(a, want) {
-			t.Errorf("CleanText output %q missing token %q", a, want)
+// TestFixturesDeterministic runs every fixture 50 times under both settings and
+// requires the same bag and the same stream each time (INV-TOK-8).
+func TestFixturesDeterministic(t *testing.T) {
+	for _, fx := range loadFixtures(t) {
+		for _, opts := range []Options{DefaultOptions(), legacyOptions()} {
+			firstBag := Tokenize(fx.Input, opts)
+			firstStream := CleanText(fx.Input, opts)
+			for range 50 {
+				if got := Tokenize(fx.Input, opts); !maps.Equal(got, firstBag) {
+					t.Fatalf("%s: Tokenize not deterministic: %v vs %v", fx.Name, got, firstBag)
+				}
+				if got := CleanText(fx.Input, opts); got != firstStream {
+					t.Fatalf("%s: CleanText not deterministic: %q vs %q", fx.Name, got, firstStream)
+				}
+			}
 		}
 	}
 }
@@ -93,16 +133,16 @@ func TestDefaultOptions(t *testing.T) {
 	if o.MinTokenRunes != 3 || o.MaxTokenRunes != 40 {
 		t.Errorf("unexpected size defaults: %+v", o)
 	}
-	if !o.KeepHTMLTags || !o.KeepURLs || !o.KeepScriptFlags {
-		t.Errorf("expected KeepHTMLTags, KeepURLs, KeepScriptFlags to default true: %+v", o)
+	if !o.KeepHTMLTags || !o.KeepURLs || !o.KeepScriptFlags || !o.ScriptBigrams {
+		t.Errorf("expected KeepHTMLTags, KeepURLs, KeepScriptFlags, ScriptBigrams to default true: %+v", o)
 	}
 }
 
 func TestKeepScriptFlagsFalse(t *testing.T) {
 	opts := DefaultOptions()
 	opts.KeepScriptFlags = false
-	got := Tokenize("我喜欢这个 hello world", opts)
-	for _, banned := range []string{"script_han", "script_hiragana", "script_katakana", "script_hangul"} {
+	got := Tokenize("我喜欢这个 hello world สวัสดี", opts)
+	for _, banned := range []string{"script_han", "script_hiragana", "script_katakana", "script_hangul", "script_thai"} {
 		if _, ok := got[banned]; ok {
 			t.Errorf("token %q should not be emitted when KeepScriptFlags=false: %v", banned, got)
 		}
@@ -153,5 +193,58 @@ func TestURLTokensRespectMaxTokenRunes(t *testing.T) {
 		if len(tok) > 255 {
 			t.Fatalf("token %q has %d bytes, exceeds spam_tokens.token storage limit", tok, len(tok))
 		}
+	}
+}
+
+// TestScriptRunEdges pins the edges of INV-TOK-3: a Hangul run emits the whole
+// run only when 2 <= n <= MaxTokenRunes (its bigrams always), bigrams do not
+// depend on KeepScriptFlags, and MinTokenRunes applies to Latin-class tokens
+// only.
+func TestScriptRunEdges(t *testing.T) {
+	maxFour := DefaultOptions()
+	maxFour.MaxTokenRunes = 4
+	flagsOff := DefaultOptions()
+	flagsOff.KeepScriptFlags = false
+	minSix := DefaultOptions()
+	minSix.MinTokenRunes = 6
+
+	cases := []struct {
+		name  string
+		input string
+		opts  Options
+		want  map[string]int
+	}{
+		{
+			name:  "hangul run over MaxTokenRunes keeps bigrams only",
+			input: "가나다라마",
+			opts:  maxFour,
+			want:  map[string]int{"script_hangul": 1, "가나": 1, "나다": 1, "다라": 1, "라마": 1},
+		},
+		{
+			name:  "hangul run at MaxTokenRunes keeps whole word and bigrams",
+			input: "가나다라",
+			opts:  maxFour,
+			want:  map[string]int{"script_hangul": 1, "가나다라": 1, "가나": 1, "나다": 1, "다라": 1},
+		},
+		{
+			name:  "han bigrams do not depend on script flags",
+			input: "我喜欢",
+			opts:  flagsOff,
+			want:  map[string]int{"我喜": 1, "喜欢": 1},
+		},
+		{
+			name:  "MinTokenRunes applies to latin tokens only",
+			input: "日本 hello abcdef",
+			opts:  minSix,
+			want:  map[string]int{"script_han": 1, "日本": 1, "abcdef": 1},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := bag(Tokenize(tc.input, tc.opts))
+			if !maps.Equal(got, tc.want) {
+				t.Errorf("Tokenize(%q) = %v, want %v", tc.input, got, tc.want)
+			}
+		})
 	}
 }

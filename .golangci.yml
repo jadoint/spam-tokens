@@ -1,0 +1,145 @@
+version: "2"
+
+# Lint config for spam-tokens: asianfanfics-goth/.golangci.yml copied whole
+# minus its `run.build-tags` (goth's Stripe test tag), so the two stay
+# diffable. Its goth-only path exclusions match nothing here and are kept.
+#
+# Requires golangci-lint built with a Go toolchain >= this module's `go`
+# directive (see go.mod). An older binary cannot typecheck the source and
+# reports a flood of phantom "undefined: X" errors from the `typecheck` linter.
+# Install a matching one with:
+#   go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+
+  enable:
+    # Database/rows hygiene. An unchecked Rows.Err silently truncates a result
+    # set mid-iteration, so a query that fails halfway looks like a short but
+    # successful read — the caller cannot tell the difference.
+    # rowserrcheck's analyzer is named `sqlrowserr`, which is how gopls labels it.
+    - rowserrcheck
+
+    # `for i := 0; i < n; i++` -> `for i := range n`. This is the linter behind
+    # the hint gopls labels `rangeint` (part of its `modernize` suite).
+    - intrange
+
+  # Deliberately NOT enabled:
+  #   Any dead-parameter linter, i.e. gopls's `unusedparams` hint in CI form.
+  #   Both candidates were tried and dropped:
+  #
+  #   revive's `unused-parameter` — 753 hits. It cannot tell a required
+  #   signature from a dead parameter, so nearly every mock in
+  #   internal/data/mocks and every `func(w, r)` handed to httptest.NewServer is
+  #   flagged. Renaming those to `_` would lose the documentation the name
+  #   carries.
+  #
+  #   unparam — smarter (it skips signatures forced by an interface), but it has
+  #   no truly-unused-only mode, and the "always receives X" heuristic it spends
+  #   most of its output on is both noisy and unstable: adding a caller that
+  #   varies an argument silently retires a warning, adding a test helper raises
+  #   one, neither being a change in code quality. On a test helper the fix it
+  #   suggests is actively wrong — "rated always receives false" means the rated
+  #   branch is untested, and folding the constant in deletes the axis instead
+  #   of the gap. Enabling it needed two config exclusions and two //nolint
+  #   directives to surface roughly six dead parameters, all of which gopls
+  #   already reports live in the editor. Not worth the suppression machinery.
+  #
+  #   sqlclosecheck — insists every rows.Close() be deferred. The model layer
+  #   closes rows explicitly before issuing further statements on the same
+  #   *sql.Tx (a Tx is pinned to one connection, so holding rows open across a
+  #   later Exec errors or blocks). Deferring would be a bug, not a fix.
+
+  settings:
+    errcheck:
+      # Errors from these are either unactionable or carry no information the
+      # caller can use. Everything else must be handled or explicitly `_ =`'d
+      # with a comment saying why.
+      exclude-functions:
+        # Closing a read-only handle / already-drained body.
+        - (io.Closer).Close
+        - (*os.File).Close
+        - (*database/sql.DB).Close
+        - (*database/sql.Conn).Close
+        - (*database/sql.Rows).Close
+        - (github.com/redis/go-redis/v9.UniversalClient).Close
+        # errcheck matches on the type that DECLARES the method, so the interface
+        # entry above misses every call site holding the concrete
+        # `*redis.Client` that redis.NewClient returns — which is most of them,
+        # and every test helper. `*redis.Client` is not the right name either:
+        # Close is promoted from the unexported *baseClient it embeds, and that
+        # is the receiver errcheck reports. Unexported, so it looks like a typo;
+        # it is not. Verify with `golangci-lint run --enable-only errcheck`
+        # before changing it.
+        - (*github.com/redis/go-redis/v9.baseClient).Close
+        # Closing a decompressor after the body has been read only reports a
+        # trailing-checksum mismatch the ReadAll already surfaced.
+        - (*compress/gzip.Reader).Close
+        # Deferred rollback after a committed tx is a no-op returning
+        # sql.ErrTxDone; the commit path already reports real failures.
+        - (*database/sql.Tx).Rollback
+        # Writes to an in-memory buffer/builder cannot fail.
+        - (*strings.Builder).WriteString
+        - (*bytes.Buffer).WriteString
+
+    staticcheck:
+      # Default set minus the stylistic "quickfix" rules we do not want applied
+      # blanket-style. QF1001 (De Morgan) in particular makes the layered
+      # visibility gates in author_stories.go harder to read, not easier.
+      checks:
+        - all
+        # golangci-lint's own default exclusions — repeated because setting
+        # `checks` replaces the default list rather than extending it.
+        - -ST1000 # missing package comment
+        - -ST1003 # naming conventions (conflicts with ID/URL/IP style used here)
+        - -ST1016 # inconsistent receiver names
+        - -ST1020 # comment on exported method should be of the form "X ..."
+        - -ST1021 # comment on exported type should be of the form "X ..."
+        - -ST1022 # comment on exported var should be of the form "X ..."
+        - -ST1023 # redundant type in variable declaration
+        # Stylistic quickfixes we do not want applied blanket-style. QF1001
+        # (De Morgan) in particular makes the layered visibility gates in
+        # author_stories.go harder to read, not easier.
+        - -QF1001 # could apply De Morgan's law
+        - -QF1007 # merge conditional assignment into declaration
+        # QF1008 wants the embedded type dropped from a selector. The test mocks
+        # here are decorators that embed the canned mock and shadow part of it —
+        # `model.ReportModel.AddedReplies` says "the field the EMBEDDED mock
+        # recorded", which is the whole point of the assertion. Folding it to
+        # `model.AddedReplies` reads as the decorator's own state and loses the
+        # distinction the test exists to prove.
+        - -QF1008 # could remove embedded field from selector
+
+  exclusions:
+    generated: lax
+    # A trimmed copy of lingua-go v1.4.0, kept as upstream wrote it
+    # (third_party/lingua-go/README.md); linting it would mean editing it.
+    paths:
+      - third_party/
+    rules:
+      # templ codegen; regenerated by `templ generate`, not hand-edited.
+      - path: _templ\.go$
+        linters: [errcheck, staticcheck, unused, ineffassign, govet]
+      # One-shot CLIs: output to stdout/stderr and teardown on exit have no
+      # meaningful failure path.
+      - path: (^|/)cmd/cli/
+        linters: [errcheck]
+      # Test bodies are already fail-fast via t.Fatal; response-body cleanup in
+      # a test that is about to end carries no signal.
+      - path: _test\.go$
+        text: Error return value of `(rs|resp|client)\.(Body\.)?Close` is not checked
+        linters: [errcheck]
+      # Fixture setup/teardown SQL in the live-DB integration tests. A broken
+      # fixture INSERT surfaces as a failed assertion in the test itself, and a
+      # failed teardown DELETE only leaves rows behind in the dev database.
+      - path: _livedb_test\.go$
+        text: Error return value of `(f\.)?db\.Exec(Context)?` is not checked
+        linters: [errcheck]
+      # Env setup in test bootstrap; os.Setenv only fails on an invalid name.
+      - path: _test\.go$
+        text: Error return value of `os\.(Setenv|Remove)` is not checked
+        linters: [errcheck]
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

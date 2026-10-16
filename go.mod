@@ -1,3 +1,5 @@
 module github.com/jadoint/spam-tokens
 
-go 1.22
+go 1.24.0
+
+require golang.org/x/text v0.32.0
