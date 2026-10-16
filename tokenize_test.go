@@ -195,3 +195,56 @@ func TestURLTokensRespectMaxTokenRunes(t *testing.T) {
 		}
 	}
 }
+
+// TestScriptRunEdges pins the edges of INV-TOK-3: a Hangul run emits the whole
+// run only when 2 <= n <= MaxTokenRunes (its bigrams always), bigrams do not
+// depend on KeepScriptFlags, and MinTokenRunes applies to Latin-class tokens
+// only.
+func TestScriptRunEdges(t *testing.T) {
+	maxFour := DefaultOptions()
+	maxFour.MaxTokenRunes = 4
+	flagsOff := DefaultOptions()
+	flagsOff.KeepScriptFlags = false
+	minSix := DefaultOptions()
+	minSix.MinTokenRunes = 6
+
+	cases := []struct {
+		name  string
+		input string
+		opts  Options
+		want  map[string]int
+	}{
+		{
+			name:  "hangul run over MaxTokenRunes keeps bigrams only",
+			input: "가나다라마",
+			opts:  maxFour,
+			want:  map[string]int{"script_hangul": 1, "가나": 1, "나다": 1, "다라": 1, "라마": 1},
+		},
+		{
+			name:  "hangul run at MaxTokenRunes keeps whole word and bigrams",
+			input: "가나다라",
+			opts:  maxFour,
+			want:  map[string]int{"script_hangul": 1, "가나다라": 1, "가나": 1, "나다": 1, "다라": 1},
+		},
+		{
+			name:  "han bigrams do not depend on script flags",
+			input: "我喜欢",
+			opts:  flagsOff,
+			want:  map[string]int{"我喜": 1, "喜欢": 1},
+		},
+		{
+			name:  "MinTokenRunes applies to latin tokens only",
+			input: "日本 hello abcdef",
+			opts:  minSix,
+			want:  map[string]int{"script_han": 1, "日本": 1, "abcdef": 1},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := bag(Tokenize(tc.input, tc.opts))
+			if !maps.Equal(got, tc.want) {
+				t.Errorf("Tokenize(%q) = %v, want %v", tc.input, got, tc.want)
+			}
+		})
+	}
+}
